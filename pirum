@@ -293,6 +293,7 @@ class Pirum_Builder
         $this->buildComposerRepository();
         $this->buildReleasePackages();
         $this->buildIndex();
+        $this->buildPackagePages();
         $this->buildCss();
         $this->buildFeed();
 
@@ -331,6 +332,7 @@ class Pirum_Builder
         $this->updateComposerRepository();
         $this->updateChannel();
         $this->updateIndex();
+        $this->updatePackagePages();
         $this->updateCss();
         $this->updateFeed();
         $this->updatePackages();
@@ -355,6 +357,11 @@ class Pirum_Builder
     protected function updateIndex()
     {
         copy($this->buildDir.'/index.html', $this->targetDir.'/index.html');
+    }
+
+    protected function updatePackagePages()
+    {
+        $this->mirrorDir($this->buildDir.'/package', $this->targetDir.'/package');
     }
 
     protected function updateCss()
@@ -514,7 +521,7 @@ EOF;
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
     <title><?php echo $this->server->summary ?></title>
     <link rel="stylesheet" type="text/css" href="pirum.css" />
-    <link rel="alternate" type="application/rss+xml" href="<?php echo $this->server->url ?>/feed.xml" title="<?php echo  $this->server->summary ?> Latest Releases" />
+    <link rel="alternate" type="application/rss+xml" href="<?php echo $this->server->url ?>/feed.xml" title="<?php echo $this->server->summary ?> Latest Releases" />
 </head>
 <body>
     <div id="doc" class="yui-t7">
@@ -536,64 +543,20 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 <pre><code><?php echo $this->server->url ?>/feed.xml</code></pre>
 
                 <?php foreach ($this->packages as $package):
-                    $deps = array();
-                    if (isset($package['deps']['required']['package'])) {
-                        $deps = $package['deps']['required']['package'];
-                        if (isset($deps['name']) && !isset($deps['conflicts'])) {
-                            $deps = array($deps);
-                        }
-                        foreach ($deps as $i => $dep) {
-                            if (isset($dep['conflicts'])) {
-                                unset($deps[$i]);
-                            }
-                        }
-                    }
-
-                    $grps = array();
-                    if (isset($package['deps']['group'])) {
-                        $grps = $package['deps']['group'];
-                    }
-                ?>
-                    <h3 id="<?php echo strtolower($package['name']) ?>"><?php echo $package['name'] ?><small> - <?php echo $package['summary'] ?></small></h3>
-                    <p><?php echo $package['description'] ?></p>
-                    <table>
-                        <tr><th>Install command</th><td><strong><?php echo $package['extension'] != null ? 'pecl' : 'pear' ?> install <?php echo $this->server->alias ?>/<?php echo $package['name'] ?></strong></td></tr>
-                        <?php if ($grps): ?><?php
-                            $groups = array();
-                            foreach ($grps as $grp) {
-                                $groups[] = ($package['extension'] != null ? 'pecl' : 'pear').' install '.$this->server->alias.'/'.$package['name'].'#'.$grp['attribs']['name'].'&nbsp;<small>('.$grp['attribs']['hint'].')</small>';
-                            }
-                            $groups = implode('<br/>', $groups);
-                        ?>
-                        <tr><th>Install groups:</th><td><?php echo $groups ?></td></tr>
-                        <?php endif; ?>
-                        <tr><th>License</th><td><?php echo $package['license'] ?></td></tr>
-                        <?php if ($deps): ?>
-                            <tr><th>Dependencies</th><td>
-                                <?php for ($i = 0, $count = count($deps); $i < $count; $i++): ?>
-                                    <?php echo $deps[$i]['channel'].'/'.$deps[$i]['name'].($i < $count - 1 ? ', ' : '') ?>
-                                <?php endfor; ?>
-                            </td></tr>
-                        <?php endif; ?>
-                        <?php
-                            $maintainers = array();
-                            foreach ($package['current_maintainers'] as $maintainer) {
-                                $maintainers[] = $maintainer['name'].' <small>(as '.$maintainer['role'].')</small>';
-                            }
-                            $maintainers = implode(', ', $maintainers);
-                        ?>
-                        <tr><th>Maintainers</th><td><?php echo $maintainers ?></td></tr>
-                        <tr><th>Releases</th><td>
-                        <?php
-                            foreach ($package['releases'] as $release) {
-                                echo '<div>' .
-                                    "<a href=\"{$this->server->url}/get/{$package['name']}-{$release['version']}.tgz\">{$release['version']}</a> <small>({$release['stability']})</small>" .
-                                    '<pre>' . trim($release['notes']) . '</pre>' .
-                                    '</div>';
-                            }
-                        ?>
-                        </td></tr>
-                    </table>
+                <h3><a href="package/<?php echo htmlspecialchars($package['name']) ?>.html"><?php echo $package['name'] ?></a><small> - <?php echo $package['summary'] ?></small></h3>
+                <p><?php echo $package['description'] ?></p>
+                <table>
+                    <tr><th>Latest Release</th><td>
+                    <?php
+                        $curr = reset($package['releases']);
+                        echo '<div>' .
+                            "<a href=\"{$this->server->url}/get/{$package['name']}-{$curr['version']}.tgz\">{$curr['version']}</a> " .
+                            "<small>({$curr['stability']})</small>" .
+                            '<pre>' . trim($release['notes']) . '</pre>' .
+                            '</div>';
+                    ?>
+                    </td></tr>
+                </table>
                 <?php endforeach; ?>
             </div>
         </div>
@@ -607,6 +570,102 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
         $index = ob_get_clean();
 
         file_put_contents($this->buildDir.'/index.html', $index);
+    }
+
+    protected function buildPackagePages()
+    {
+        $this->formatter and print $this->formatter->formatSection('INFO', "Building package pages.");
+
+        if (!is_dir($this->buildDir.'/package')) {
+            mkdir($this->buildDir.'/package', 0777, true);
+        }
+
+        foreach ($this->packages as $package) {
+            $deps = array();
+            if (isset($package['deps']['required']['package'])) {
+                if (isset($package['deps']['required']['package']['name'])) {
+                    $package['deps']['required']['package'] = array($package['deps']['required']['package']);
+                }
+                foreach ($package['deps']['required']['package'] as $p) {
+                    if (isset($p['conflicts'])) {
+                        continue;
+                    }
+                    if (!isset($deps[$p['channel']])) {
+                        $deps[$p['channel']] = array();
+                    }
+                    $deps[$p['channel']][] = $p;
+                }
+            }
+
+            $groups = array();
+            if (isset($package['deps']['group'])) {
+                foreach ($package['deps']['group'] as $grp) {
+                    $groups[] = ($package['extension'] != null ? 'pecl' : 'pear').' install '.$this->server->alias.'/'.$package['name'].'#'.$grp['attribs']['name'].'&nbsp;<small>('.$grp['attribs']['hint'].')</small>';
+                }
+            }
+
+            $maintainers = array();
+            foreach ($package['current_maintainers'] as $maintainer) {
+                $maintainers[] = $maintainer['name'].' <small>(as '.$maintainer['role'].')</small>';
+            }
+
+            ob_start();
+
+?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title><?php echo htmlspecialchars($package['name']) ?></title>
+    <link rel="stylesheet" type="text/css" href="../pirum.css" />
+</head>
+<body>
+    <div id="doc" class="yui-t7">
+        <div id="hd">
+            <h2><?php echo htmlspecialchars($package['name']) ?></h2>
+            <h3><?php echo $package['summary'] ?></h3>
+            <p><?php echo $package['description'] ?></p>
+        </div>
+        <div id="bd">
+            <table>
+                <tr><th>Install command</th><td><strong><?php echo $package['extension'] != null ? 'pecl' : 'pear' ?> install <?php echo $this->server->alias ?>/<?php echo $package['name'] ?></strong></td></tr>
+                <?php if ($groups): ?>
+                <tr><th>Install groups:</th><td><?php echo implode('<br/>', $groups) ?></td></tr>
+                <?php endif; ?>
+                <tr><th>License</th><td><?php echo (empty($package['licenseuri']) ? $package['license'] : '<a href="' . $package['licenseuri'] . '">' . $package['license'] . '</a>') ?></td></tr>
+                <?php if ($deps): ?>
+                <tr><th>Dependencies</th><td>
+                    <dl>
+                    <?php foreach ($deps as $ch => $ch_deps): ?>
+                        <dt><?php echo $ch ?></dt>
+                        <dd>
+                        <?php for ($i = 0, $count = count($ch_deps); $i < $count; $i++): ?>
+                            <?php echo $ch_deps[$i]['name'].($i < $count - 1 ? ', ' : '') ?>
+                        <?php endfor; ?>
+                        </dd>
+                    <?php endforeach; ?>
+                    </dl>
+                </td></tr>
+                <?php endif; ?>
+                <tr><th>Maintainers</th><td><?php echo implode(', ', $maintainers) ?></td></tr>
+                <tr><th>Releases</th><td>
+                <?php foreach ($package['releases'] as $release): ?>
+                    <div><a href="<?php echo $this->server->url . '/get/' . $package['name'] . '-' . $release['version'] . '.tgz' ?>"><?php echo $release['version'] ?></a> <small>(<?php echo $release['stability'] ?>)</small><pre><?php echo trim($release['notes']) ?></pre></div>
+                <?php endforeach; ?>
+                </td></tr>
+            </table>
+        </div>
+    </div>
+    <div>
+        <p><a href="../index.html">Return to the main page</a></p>
+    </div>
+</body>
+</html>
+<?php
+            $page = ob_get_clean();
+
+            file_put_contents($this->buildDir.'/package/' . $package['name'] . '.html', $page);
+        }
     }
 
     protected function buildComposerRepository()
