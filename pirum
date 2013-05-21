@@ -542,7 +542,7 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 <em>Receiving</em> updates via a <a href="<?php echo $this->server->url ?>/feed.xml">feed</a>:
                 <pre><code><?php echo $this->server->url ?>/feed.xml</code></pre>
 
-                <?php foreach ($this->packages as $package):
+                <?php foreach ($this->packages as $package): ?>
                 <h3><a href="package/<?php echo htmlspecialchars($package['name']) ?>.html"><?php echo $package['name'] ?></a><small> - <?php echo $package['summary'] ?></small></h3>
                 <p><?php echo $package['description'] ?></p>
                 <table>
@@ -552,7 +552,7 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                         echo '<div>' .
                             "<a href=\"{$this->server->url}/get/{$package['name']}-{$curr['version']}.tgz\">{$curr['version']}</a> " .
                             "<small>({$curr['stability']})</small>" .
-                            '<pre>' . trim($release['notes']) . '</pre>' .
+                            '<pre>' . trim($curr['notes']) . '</pre>' .
                             '</div>';
                     ?>
                     </td></tr>
