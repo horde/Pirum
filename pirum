@@ -1583,15 +1583,18 @@ class Pirum_Package
         $array = array();
         foreach ($xml->children() as $element => $value) {
             $key = (string) $element;
-            $value = count($value->children()) ? $this->XMLToArray($value) : (string) $value;
+            $val = $this->XMLToArray($value);
+            if (empty($val)) {
+                $val = (string) $value;
+            }
 
             if (array_key_exists($key, $array)) {
                 if (!is_array($array[$key])) {
                     $array[$key] = array($array[$key]);
                 }
-                $array[$key][] = $value;
+                $array[$key][] = $val;
             } else {
-                $array[$key] = $value;
+                $array[$key] = $val;
             }
         }
 
