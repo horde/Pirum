@@ -1600,10 +1600,6 @@ class Pirum_Package
 
     protected function XMLGroupDepsToArray($xml)
     {
-        if ($xml->count() == 0) {
-            return array();
-        }
-
         $deps = array();
         foreach ($xml as $group) {
             // Extract group attribs (shared by all children)
