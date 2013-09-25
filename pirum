@@ -118,7 +118,7 @@ class Pirum_CLI
     public static function version()
     {
         if (strpos(self::VERSION, '@package_version') === 0) {
-            return 'DEV';
+            return 'Horde Edition';
         } else {
             return self::VERSION;
         }
@@ -311,6 +311,9 @@ class Pirum_Builder
             if (!file_exists($tar)) {
                 if (function_exists('gzopen')) {
                     $gz = gzopen($file, 'r');
+                    if ($gz === false) {
+                        throw new Exception(sprintf('Failed extracting archive "%s"!', $this->archive));
+                    }
                     $fp = fopen(str_replace('.tgz', '.tar', $file), 'wb');
                     while (!gzeof($gz)) {
                         fwrite($fp, gzread($gz, 10000));
@@ -394,6 +397,7 @@ class Pirum_Builder
         </author>
         <updated>$date</updated>
         <content>
+            {$package['description']}
             {$release['notes']}
         </content>
     </entry>
@@ -477,10 +481,11 @@ pre { background-color: #000; color: #fff; margin: 5px 0; overflow: auto; paddin
 #ft { margin-top: 10px }
 ul { margin-top: 5px }
 li strong { color: #666 }
+dd { margin-left: 20px }
 p { margin-bottom: 10px }
 table { width: 100% }
 table th { width: 20% }
-table td, table th { padding: 4px; border: 1px solid #ccc }
+table td, table th { vertical-align: top; padding: 4px; border: 1px solid #ccc }
 th { background-color: #eee }
 
 EOF;
@@ -538,14 +543,17 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 <?php foreach ($this->packages as $package):
                     $deps = array();
                     if (isset($package['deps']['required']['package'])) {
-                        $deps = $package['deps']['required']['package'];
-                        if (isset($deps['name']) && !isset($deps['conflicts'])) {
-                            $deps = array($deps);
+                        if (isset($package['deps']['required']['package']['name'])) {
+                            $package['deps']['required']['package'] = array($package['deps']['required']['package']);
                         }
-                        foreach ($deps as $i => $dep) {
-                            if (isset($dep['conflicts'])) {
-                                unset($deps[$i]);
+                        foreach ($package['deps']['required']['package'] as $p) {
+                            if (isset($p['conflicts'])) {
+                                continue;
                             }
+                            if (!isset($deps[$p['channel']])) {
+                                $deps[$p['channel']] = array();
+                            }
+                            $deps[$p['channel']][] = $p;
                         }
                     }
 
@@ -567,12 +575,19 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                         ?>
                         <tr><th>Install groups:</th><td><?php echo $groups ?></td></tr>
                         <?php endif; ?>
-                        <tr><th>License</th><td><?php echo $package['license'] ?></td></tr>
+                        <tr><th>License</th><td><?php echo (empty($package['licenseuri']) ? $package['license'] : '<a href="' . $package['licenseuri'] . '">' . $package['license'] . '</a>') ?></td></tr>
                         <?php if ($deps): ?>
                             <tr><th>Dependencies</th><td>
-                                <?php for ($i = 0, $count = count($deps); $i < $count; $i++): ?>
-                                    <?php echo $deps[$i]['channel'].'/'.$deps[$i]['name'].($i < $count - 1 ? ', ' : '') ?>
+                                <dl>
+                                <?php foreach ($deps as $ch => $ch_deps): ?>
+                                <dt><?php echo $ch ?></dt>
+                                <dd>
+                                <?php for ($i = 0, $count = count($ch_deps); $i < $count; $i++): ?>
+                                    <?php echo $ch_deps[$i]['name'].($i < $count - 1 ? ', ' : '') ?>
                                 <?php endfor; ?>
+                                <dd>
+                                <?php endforeach; ?>
+                                </dl>
                             </td></tr>
                         <?php endif; ?>
                         <?php
@@ -1266,6 +1281,7 @@ EOF;
                 $this->packages[$package->getName()] = array(
                     'name'        => htmlspecialchars($package->getName()),
                     'license'     => htmlspecialchars($package->getLicense()),
+                    'licenseuri'  => htmlspecialchars($package->getLicenseUri()),
                     'summary'     => htmlspecialchars($package->getSummary()),
                     'description' => htmlspecialchars($package->getDescription()),
                     'extension'   => $package->getProvidedExtension(),
@@ -1537,6 +1553,9 @@ class Pirum_Package
         }
 
         $gz = gzopen($this->archive, 'r');
+        if ($gz === false) {
+            throw new Exception(sprintf('Failed extracting archive "%s"!', $this->archive));
+        }
         $tar = '';
         while (!gzeof($gz)) {
             $tar .= gzread($gz, 10000);
@@ -1583,22 +1602,19 @@ class Pirum_Package
         $array = array();
         foreach ($xml->children() as $element => $value) {
             $key = (string) $element;
-            $val = $this->XMLToArray($value);
-            if (empty($val)) {
-                $val = (string) $value;
-            }
+            $value = $this->XMLToArray($value);
 
-            if (array_key_exists($key, $array)) {
-                if (!is_array($array[$key])) {
+            if (isset($array[$key])) {
+                if (!is_array($array[$key]) || !isset($array[$key][0])) {
                     $array[$key] = array($array[$key]);
                 }
-                $array[$key][] = $val;
+                $array[$key][] = $value;
             } else {
-                $array[$key] = $val;
+                $array[$key] = $value;
             }
         }
 
-        return $array;
+        return $array ?: (string) $value;
     }
 
     protected function XMLGroupDepsToArray($xml)
