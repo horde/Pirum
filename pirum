@@ -754,44 +754,34 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
 
     protected function guessComposerAutoload(SimpleXMLElement $packageInfo)
     {
-        $files = array();
-        if (count($packageInfo->contents->dir)) {
-            foreach ($packageInfo->contents->dir as $dir) {
-                if (count($dir->file)) {
-                    foreach ($dir->file as $file) {
-                        if ('php' !== (string) $file['role']) {
-                            continue;
-                        }
+        $out = $paths = array();
 
-                        $files[] = ltrim($dir['name'].$file['name'], '/');
+        foreach ($packageInfo->contents->dir as $dir) {
+            foreach ($dir->file as $file) {
+                if ('php' === (string) $file['role']) {
+                    $path = dirname(ltrim($dir['name'].$file['name'], '/'));
+                    if (!isset($paths[$path])) {
+                        $paths[$path] = true;
                     }
                 }
             }
         }
 
         // reduce to meaningful unique paths
-        while (true) {
-            foreach ($files as $key => $file) {
-                foreach ($files as $key2 => $file2) {
-                    if ($key === $key2) {
-                        continue;
-                    }
-                    if (false !== strpos($file, '/') && dirname($file) === dirname($file2)) {
-                        unset($files[$key2]);
-                        $files[$key] = dirname($file);
-                        continue 3;
-                    }
-                    if (0 === strpos($file2, $file.'/') || $file === $file2) {
-                        unset($files[$key2]);
-                        continue 3;
-                    }
+        foreach (array_keys($paths) as $path) {
+            foreach (array_keys($out) as $path2) {
+                if (strpos($path, $path2 . '/') === 0) {
+                    continue 2;
+                }
+                if (strpos($path2, $path . '/') === 0) {
+                    unset($out[$path2]);
                 }
             }
-            break;
+            $out[$path] = true;
         }
 
         return array(
-            'classmap' => $files ? $files : array(''),
+            'classmap' => $out ? array_keys($out) : array(''),
         );
     }
 
@@ -1389,15 +1379,13 @@ class Pirum_Package
 
         $this->name    = $match['name'];
         $this->version = $match['version'];
-
-        $this->tmpDir = sys_get_temp_dir().'/pirum_package_'.uniqid();
-
-        mkdir($this->tmpDir, 0777, true);
     }
 
     public function __destruct()
     {
-        Pirum_CLI::removeDir($this->tmpDir);
+        if (isset($this->tmpDir)) {
+            Pirum_CLI::removeDir($this->tmpDir);
+        }
     }
 
     public function getPackageXml()
@@ -1533,6 +1521,11 @@ class Pirum_Package
 
     public function loadPackageFromArchive()
     {
+        if (!isset($this->tmpDir)) {
+            $this->tmpDir = sys_get_temp_dir().'/pirum_package_'.uniqid();
+            mkdir($this->tmpDir, 0777, true);
+        }
+
         if (!function_exists('gzopen')) {
             copy($this->archive, $this->tmpDir.'/archive.tgz');
             system('cd '.$this->tmpDir.' && tar zxpf archive.tgz');
@@ -1593,27 +1586,25 @@ class Pirum_Package
         $array = array();
         foreach ($xml->children() as $element => $value) {
             $key = (string) $element;
-            $value = $this->XMLToArray($value);
+            if (!($val = $this->XMLToArray($value))) {
+                $val = (string) $value;
+            }
 
             if (isset($array[$key])) {
                 if (!is_array($array[$key])) {
                     $array[$key] = array($array[$key]);
                 }
-                $array[$key][] = $value;
+                $array[$key][] = $val;
             } else {
-                $array[$key] = $value;
+                $array[$key] = $val;
             }
         }
 
-        return $array ?: (string) $value;
+        return $array;
     }
 
     protected function XMLGroupDepsToArray($xml)
     {
-        if ($xml->count() == 0) {
-            return array();
-        }
-
         $deps = array();
         foreach ($xml as $group) {
             // Extract group attribs (shared by all children)
