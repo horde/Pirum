@@ -1605,7 +1605,7 @@ class Pirum_Package
             }
         }
 
-        return $array ?: (string) $value;
+        return $array ?: (string) $xml;
     }
 
     protected function XMLGroupDepsToArray($xml)
