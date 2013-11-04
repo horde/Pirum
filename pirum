@@ -255,7 +255,7 @@ class Pirum_Builder
 
         $defaultConf = array(
             'pirum' => array(
-                'template' => '', 
+                'template' => '',
                 'templatedir' => dirname(__FILE__) . '/templates'
             )
         );
@@ -269,7 +269,7 @@ class Pirum_Builder
             $customConf = array();
         }
         $this->templateConf = array_merge($defaultConf, $customConf);
-        
+
         $this->formatter = $formatter;
         $this->targetDir = $targetDir;
         $this->buildDir  = sys_get_temp_dir().'/pirum_build_'.uniqid();
@@ -284,7 +284,6 @@ class Pirum_Builder
     public function build()
     {
         $this->extractInformationFromPackages();
-
         $this->fixArchives();
         $this->buildChannel();
         $this->buildMaintainers();
@@ -302,23 +301,23 @@ class Pirum_Builder
     protected function fixArchives()
     {
         // create tar files when missing
-        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->targetDir.'/get'), RecursiveIteratorIterator::LEAVES_ONLY) as $file) {
-            if (!preg_match(Pirum_Package::PACKAGE_FILE_PATTERN, $file->getFileName())) {
-                continue;
-            }
+        foreach ($this->packages as $package) {
+            foreach ($package as $release) {
+                $file = $release->getFileName();
+                $tar = preg_replace('/\.tgz/', '.tar', $file);
 
-            $tar = preg_replace('/\.tgz/', '.tar', $file);
-            if (!file_exists($tar)) {
-                if (function_exists('gzopen')) {
-                    $gz = gzopen($file, 'r');
-                    $fp = fopen(str_replace('.tgz', '.tar', $file), 'wb');
-                    while (!gzeof($gz)) {
-                        fwrite($fp, gzread($gz, 10000));
+                if (!file_exists($tar)) {
+                    if (function_exists('gzopen')) {
+                        $gz = gzopen($file, 'r');
+                        $fp = fopen(str_replace('.tgz', '.tar', $file), 'wb');
+                        while (!gzeof($gz)) {
+                            fwrite($fp, gzread($gz, 10000));
+                        }
+                        gzclose($gz);
+                        fclose($fp);
+                    } else {
+                        system('cd '.$this->targetDir.'/get/ && gunzip -c -f '.basename($file));
                     }
-                    gzclose($gz);
-                    fclose($fp);
-                } else {
-                    system('cd '.$this->targetDir.'/get/ && gunzip -c -f '.basename($file));
                 }
             }
         }
@@ -377,24 +376,28 @@ class Pirum_Builder
         $this->formatter and print $this->formatter->formatSection('INFO', "Building feed.");
 
         $entries = '';
-        foreach ($this->packages as $package) {
-            foreach ($package['releases'] as $release) {
-                $date = date(DATE_ATOM, strtotime($release['date']));
+        foreach ($this->packages as $name => $package) {
+            $name = htmlspecialchars($name);
 
-                reset($release['maintainers']);
-                $maintainer = current($release['maintainers']);
+            foreach ($package as $release) {
+                $date = date(DATE_ATOM, strtotime($release->getDate()));
+
+                $maintainers = $release->getMaintainers();
+                $maintainer = reset($maintainers);
+
+                $notes = htmlspecialchars($release->getNotes());
 
                 $entries .= <<<EOF
     <entry>
-        <title>{$package['name']} {$release['version']} ({$release['stability']})</title>
-        <link href="{$this->server->url}/get/{$package['name']}-{$release['version']}.tgz" />
-        <id>{$this->server->url}/get/{$package['name']}-{$release['version']}.tgz</id>
+        <title>{$name} {$release->getVersion(true)} ({$release->getStability()})</title>
+        <link href="{$this->server->url}/get/{$name}-{$release->getVersion(true)}.tgz" />
+        <id>{$this->server->url}/get/{$name}-{$release->getVersion(true)}.tgz</id>
         <author>
             <name>{$maintainer['nickname']}</name>
         </author>
         <updated>$date</updated>
         <content>
-            {$release['notes']}
+            $notes
         </content>
     </entry>
 EOF;
@@ -423,7 +426,7 @@ EOF;
     protected function getTemplateFile($name)
     {
         if (array_key_exists($this->targetDir, $this->templateConf)) {
-            // check first if a specific server template is defined 
+            // check first if a specific server template is defined
             $templateConf = $this->templateConf[$this->targetDir];
             if (isset($templateConf['templatedir'])) {
                 $dir = $templateConf['templatedir'];
@@ -432,7 +435,7 @@ EOF;
                 $dir = $this->templateConf['pirum']['templatedir'];
             }
             $file = $dir;
-            if (isset($templateConf['template']) 
+            if (isset($templateConf['template'])
                 && !empty($templateConf['template'])
             ) {
                 $file .= '/' . $templateConf['template'];
@@ -441,21 +444,21 @@ EOF;
             // use default template
             $file = $this->templateConf['pirum']['templatedir'];
             if (!empty($this->templateConf['pirum']['template'])) {
-                $file .= '/' . $this->templateConf['pirum']['template'];  
+                $file .= '/' . $this->templateConf['pirum']['template'];
             }
         }
         $file .= "/$name";
-        
+
         return $file;
     }
-    
+
     protected function buildCss()
     {
         if (file_exists($file = $this->getTemplateFile('pirum.css')) ||
             file_exists($file = $this->buildDir.'/templates/pirum.css')) {
             $content = file_get_contents($file);
         } else {
-            // fallback in case of external template is not readable 
+            // fallback in case of external template is not readable
             $content = <<<EOF
 /*
 Copyright (c) 2009, Yahoo! Inc. All rights reserved.
@@ -494,7 +497,7 @@ EOF;
         $this->formatter and print $this->formatter->formatSection('INFO', "Building index.");
 
         $version = Pirum_CLI::version();
-        
+
         if (file_exists($file = $this->getTemplateFile('index.html')) ||
             file_exists($file = $this->buildDir.'/templates/index.html')) {
             ob_start();
@@ -505,7 +508,7 @@ EOF;
 
             return;
         }
-        // fallback in case of external template is not readable 
+        // fallback in case of external template is not readable
         ob_start();
 ?>
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
@@ -536,9 +539,10 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 <pre><code><?php echo $this->server->url ?>/feed.xml</code></pre>
 
                 <?php foreach ($this->packages as $package):
+                    $pdeps = @unserialize($package[0]->getDeps());
                     $deps = array();
-                    if (isset($package['deps']['required']['package'])) {
-                        $deps = $package['deps']['required']['package'];
+                    if (isset($pdeps['required']['package'])) {
+                        $deps = $pdeps['required']['package'];
                         if (isset($deps['name']) && !isset($deps['conflicts'])) {
                             $deps = array($deps);
                         }
@@ -549,35 +553,35 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                         }
                     }
 
-                    $grps = array();
-                    if (isset($package['deps']['group'])) {
-                        $grps = $package['deps']['group'];
-                    }
+                    $grps = isset($pdeps['group'])
+                        ? $pdeps['group']
+                        : array();
+                    $name = $package[0]->getName(true);
                 ?>
-                    <h3 id="<?php echo strtolower($package['name']) ?>"><?php echo $package['name'] ?><small> - <?php echo $package['summary'] ?></small></h3>
-                    <p><?php echo $package['description'] ?></p>
+                    <h3 id="<?php echo strtolower($name) ?>"><?php echo $name ?><small> - <?php echo $package[0]->getSummary(true) ?></small></h3>
+                    <p><?php echo $package[0]->getDescription(true) ?></p>
                     <table>
-                        <tr><th>Install command</th><td><strong><?php echo $package['extension'] != null ? 'pecl' : 'pear' ?> install <?php echo $this->server->alias ?>/<?php echo $package['name'] ?></strong></td></tr>
+                        <tr><th>Install command</th><td><strong><?php echo $package[0]->getProvidedExtension() != null ? 'pecl' : 'pear' ?> install <?php echo $this->server->alias ?>/<?php echo $name ?></strong></td></tr>
                         <?php if ($grps): ?><?php
                             $groups = array();
                             foreach ($grps as $grp) {
-                                $groups[] = ($package['extension'] != null ? 'pecl' : 'pear').' install '.$this->server->alias.'/'.$package['name'].'#'.$grp['attribs']['name'].'&nbsp;<small>('.$grp['attribs']['hint'].')</small>';
+                                $groups[] = ($package[0]->getProvidedExtension() != null ? 'pecl' : 'pear').' install '.$this->server->alias.'/'.$name.'#'.$grp['attribs']['name'].'&nbsp;<small>('.$grp['attribs']['hint'].')</small>';
                             }
                             $groups = implode('<br/>', $groups);
                         ?>
                         <tr><th>Install groups:</th><td><?php echo $groups ?></td></tr>
                         <?php endif; ?>
-                        <tr><th>License</th><td><?php echo $package['license'] ?></td></tr>
+                        <tr><th>License</th><td><?php echo $package[0]->getLicense(true) ?></td></tr>
                         <?php if ($deps): ?>
                             <tr><th>Dependencies</th><td>
                                 <?php for ($i = 0, $count = count($deps); $i < $count; $i++): ?>
-                                    <?php echo $deps[$i]['channel'].'/'.$deps[$i]['name'].($i < $count - 1 ? ', ' : '') ?>
+                                    <?php if (isset($deps[$i])) { echo $deps[$i]['channel'].'/'.$deps[$i]['name'].($i < $count - 1 ? ', ' : ''); } ?>
                                 <?php endfor; ?>
                             </td></tr>
                         <?php endif; ?>
                         <?php
                             $maintainers = array();
-                            foreach ($package['current_maintainers'] as $maintainer) {
+                            foreach ($package[0]->getMaintainers() as $maintainer) {
                                 $maintainers[] = $maintainer['name'].' <small>(as '.$maintainer['role'].')</small>';
                             }
                             $maintainers = implode(', ', $maintainers);
@@ -585,8 +589,8 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                         <tr><th>Maintainers</th><td><?php echo $maintainers ?></td></tr>
                         <?php
                         $releases = array();
-                        foreach ($package['releases'] as $release) {
-                            $releases[] = "<a href=\"{$this->server->url}/get/{$package['name']}-{$release['version']}.tgz\">{$release['version']}</a> <small>({$release['stability']})</small>";
+                        foreach ($package as $release) {
+                            $releases[] = "<a href=\"{$this->server->url}/get/{$name}-{$release->getVersion(true)}.tgz\">{$release->getVersion(true)}</a> <small>({$release->getStability()})</small>";
                         }
                         $releases = implode(', ', $releases);
                         ?>
@@ -609,20 +613,28 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
 
     protected function buildComposerRepository()
     {
-        $this->formatter and print $this->formatter->formatSection('INFO', "Building composer repository.");
+        $this->formatter and print $this->formatter->formatSection('INFO', "Building composer repository", false);
 
-        $repository = array();
+        $first = true;
+        $pearChannels = $repository = array();
 
         $vendor = !empty($this->server->alias) ? $this->server->alias : $this->server->name;
 
-        foreach ($this->packages as $package) {
+        foreach ($this->packages as $name => $package) {
+            $name = htmlspecialchars($name);
+            if (!($descrip = $package[0]->getSummary(true))) {
+                $descrip = $package[0]->getDescription(true);
+            }
+
             // standard package fields
-            $packageDef = array('versions' => array());
-            $packageDef['name']        = 'pear-'.$vendor.'/'.$package['name'];
-            $packageDef['description'] = !empty($package['summary']) ? $package['summary'] : $package['description'];
+            $packageDef = array(
+                'description' => $descrip,
+                'name'        => 'pear-'.$vendor.'/'.$name,
+                'versions'    => array()
+            );
 
             // package maintainers
-            foreach ($package['current_maintainers'] as $maintainer) {
+            foreach ($package[0]->getMaintainers() as $maintainer) {
                 $packageDef['maintainers'][] = array(
                     'name'     => $maintainer['name'],
                     'email'    => $maintainer['email'],
@@ -631,33 +643,39 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
             }
             $repository[$packageDef['name']] = $packageDef;
 
-            $pearChannels = array();
-            foreach ($package['releases'] as $release) {
-                // standard version fields
-                $version = array(
-                    'name'        => $packageDef['name'],
-                    'description' => $packageDef['description'],
-                    'dist'        => array(
-                        'type' => 'pear',
-                        'url'  => $this->server->url.'/get/'.$package['name'].'-'.$release['version'].'.tgz',
-                    ),
-                );
-                if (isset($release['license'])) {
-                    $version['license'] = $release['license'];
+            // standard version fields
+            $version_template = array(
+                'name'        => $packageDef['name'],
+                'description' => $packageDef['description'],
+                'dist'        => array(
+                    'type' => 'pear'
+                )
+            );
+
+            foreach ($package as $release) {
+                !$first and $this->formatter and print $this->formatter->format(',');
+                $this->formatter and print $this->formatter->format(' ' . $name . ' ' . $release->getVersion());
+                $first = false;
+
+                $version = $version_template;
+                $version['dist']['url'] = $this->server->url.'/get/'.$name.'-'.$release->getVersion().'.tgz';
+
+                if ($license = $release->getLicense(true)) {
+                    $version['license'] = $license;
                 }
-                if (isset($release['version'])) {
-                    $version['version'] = $release['version'];
+                if ($vers = $release->getVersion()) {
+                    $version['version'] = htmlspecialchars($vers);
                 }
-                if (isset($release['date'])) {
-                    $version['time'] = date(DATE_ATOM, strtotime($release['date']));
+                if ($date = $release->getDate()) {
+                    $version['time'] = date(DATE_ATOM, strtotime($date));
                 }
 
                 // version requirements
-                if (isset($release['php'])) {
-                    $version['require']['php'] = '>='.$release['php'];
+                if ($minphp = $release->getMinPhp()) {
+                    $version['require']['php'] = '>='.$minphp;
                 }
 
-                if (isset($release['deps']) && $deps = @unserialize($release['deps'])) {
+                if ($deps = @unserialize($release->getDeps())) {
                     $depsTypes = array(
                         'required' => 'require',
                         'optional' => 'suggest',
@@ -688,10 +706,11 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                                         if (false === strpos($dataKey, '/')) {
                                             $channelUrl = 'http://'.$value['channel'];
                                             if (!isset($pearChannels[$channelUrl])) {
+                                                $this->formatter and print $this->formatter->format(' [Loading PEAR channel ' . $channelUrl . ']');
                                                 try {
                                                     $channelInfo = @new SimpleXMLElement($channelUrl.'/channel.xml', null, true);
                                                 } catch (Exception $e) {
-                                                    throw new Exception(sprintf('Channel "%s" could not be reached for package %s version %s.', $channelUrl, $package['name'], $version['version']));
+                                                    throw new Exception(sprintf('Channel "%s" could not be reached for package %s version %s.', $channelUrl, $name, $version['version']));
                                                 }
                                                 if ($tmp = (string) $channelInfo->suggestedalias[0]) {
                                                     $pearChannels[$channelUrl] = $tmp;
@@ -715,7 +734,7 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 }
 
                 // version authors
-                foreach ($package['maintainers'] as $maintainer) {
+                foreach ($release->getMaintainers() as $maintainer) {
                     $version['authors'][] = array(
                         'name'     => $maintainer['name'],
                         'email'    => $maintainer['email'],
@@ -724,7 +743,9 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
                 }
 
                 // autoload
-                $version['autoload'] = $this->guessComposerAutoload($release['info']->getPackageXml());
+                $version['autoload'] = array(
+                    'classmap' => array_values($release->getClassMap())
+                );
 
                 $repository[$packageDef['name']]['versions'][$version['version']] = $version;
             }
@@ -735,6 +756,8 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
         } else {
             file_put_contents($this->buildDir.'/packages.json',json_encode($repository));
         }
+
+        $this->formatter and print "\n";
     }
 
     protected function createComposerConstraint(array $data)
@@ -752,57 +775,14 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
         return implode(',', $versions);
     }
 
-    protected function guessComposerAutoload(SimpleXMLElement $packageInfo)
-    {
-        $files = array();
-        if (count($packageInfo->contents->dir)) {
-            foreach ($packageInfo->contents->dir as $dir) {
-                if (count($dir->file)) {
-                    foreach ($dir->file as $file) {
-                        if ('php' !== (string) $file['role']) {
-                            continue;
-                        }
-
-                        $files[] = ltrim($dir['name'].$file['name'], '/');
-                    }
-                }
-            }
-        }
-
-        // reduce to meaningful unique paths
-        while (true) {
-            foreach ($files as $key => $file) {
-                foreach ($files as $key2 => $file2) {
-                    if ($key === $key2) {
-                        continue;
-                    }
-                    if (false !== strpos($file, '/') && dirname($file) === dirname($file2)) {
-                        unset($files[$key2]);
-                        $files[$key] = dirname($file);
-                        continue 3;
-                    }
-                    if (0 === strpos($file2, $file.'/') || $file === $file2) {
-                        unset($files[$key2]);
-                        continue 3;
-                    }
-                }
-            }
-            break;
-        }
-
-        return array(
-            'classmap' => $files ? $files : array(''),
-        );
-    }
-
     protected function buildReleasePackages()
     {
         $this->formatter and print $this->formatter->formatSection('INFO', "Building releases.");
 
         mkdir($this->buildDir.'/rest/r', 0777, true);
 
-        foreach ($this->packages as $package) {
-            mkdir($dir = $this->buildDir.'/rest/r/'.strtolower($package['name']), 0777, true);
+        foreach ($this->packages as $name => $package) {
+            mkdir($dir = $this->buildDir.'/rest/r/'.strtolower($name), 0777, true);
 
             $this->buildReleasePackage($dir, $package);
         }
@@ -810,9 +790,12 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
 
     protected function buildReleasePackage($dir, $package)
     {
-        $this->formatter and print $this->formatter->formatSection('INFO', "Building releases for {$package['name']}.");
+        $name = $package[0]->getName();
 
-        $url = strtolower($package['name']);
+        $this->formatter and print $this->formatter->formatSection('INFO', "Building releases for {$name}.");
+
+        $name = htmlspecialchars($name);
+        $url = strtolower($name);
 
         $alpha = '';
         $beta = '';
@@ -822,30 +805,46 @@ pear install <?php echo $this->server->alias ?>/package_name-beta</code></pre>
         $allreleases2 = '';
         $first = true;
         $this->formatter and print $this->formatter->formatSection('INFO', 'Building release', false);
-        foreach ($package['releases'] as $release) {
-            if ('stable' == $release['stability'] && !$stable) {
-                $stable = $release['version'];
-            } elseif ('beta' == $release['stability'] && !$beta) {
-                $beta = $release['version'];
-            } elseif ('alpha' == $release['stability'] && !$alpha) {
-                $alpha = $release['version'];
-            } elseif ('snapshot' == $release['stability'] && !$snapshot) {
-                $snapshot = $release['version'];
+        foreach ($package as $release) {
+            switch ($release->getStability()) {
+            case 'stable':
+                if (!$stable) {
+                    $stable = $release->getVersion();
+                }
+                break;
+
+            case 'beta':
+                if (!$beta) {
+                    $beta = $release->getVersion();
+                }
+                break;
+
+            case 'alpha':
+                if (!$alpha) {
+                    $alpha = $release->getVersion();
+                }
+                break;
+
+            case 'snapshot':
+                if (!$snapshot) {
+                    $snapshot = $release->getVersion();
+                }
+                break;
             }
 
             $allreleases .= <<<EOF
     <r>
-        <v>{$release['version']}</v>
-        <s>{$release['stability']}</s>
+        <v>{$release->getVersion()}</v>
+        <s>{$release->getStability()}</s>
     </r>
 
 EOF;
 
             $allreleases2 .= <<<EOF
     <r>
-        <v>{$release['version']}</v>
-        <s>{$release['stability']}</s>
-        <m>{$release['php']}</m>
+        <v>{$release->getVersion()}</v>
+        <s>{$release->getStability()}</s>
+        <m>{$release->getMinPhp()}</m>
     </r>
 
 EOF;
@@ -855,8 +854,8 @@ EOF;
         }
         $this->formatter and print "\n";
 
-        if (count($package['releases'])) {
-            file_put_contents($dir.'/latest.txt', $package['releases'][0]['version']);
+        if (count($package)) {
+            file_put_contents($dir.'/latest.txt', $package[0]->getVersion());
         }
 
         if ($stable) {
@@ -878,7 +877,7 @@ EOF;
         file_put_contents($dir.'/allreleases.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <a xmlns="http://pear.php.net/dtd/rest.allreleases" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink"     xsi:schemaLocation="http://pear.php.net/dtd/rest.allreleases http://pear.php.net/dtd/rest.allreleases.xsd">
-    <p>{$package['name']}</p>
+    <p>{$name}</p>
     <c>{$this->server->name}</c>
 $allreleases
 </a>
@@ -888,7 +887,7 @@ EOF
         file_put_contents($dir.'/allreleases2.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <a xmlns="http://pear.php.net/dtd/rest.allreleases2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink"     xsi:schemaLocation="http://pear.php.net/dtd/rest.allreleases2 http://pear.php.net/dtd/rest.allreleases2.xsd">
-    <p>{$package['name']}</p>
+    <p>{$name}</p>
     <c>{$this->server->name}</c>
 $allreleases2
 </a>
@@ -899,58 +898,61 @@ EOF
     protected function buildRelease($dir, $package, $release, $first)
     {
         !$first and $this->formatter and print $this->formatter->format(',');
-        $this->formatter and print $this->formatter->format(' ' . $release['version']);
+        $this->formatter and print $this->formatter->format(' ' . $release->getVersion());
 
-        $url = strtolower($package['name']);
+        $name = $package[0]->getName(true);
+        $url = strtolower($name);
 
-        reset($release['maintainers']);
-        $maintainer = current($release['maintainers']);
+        $maintainers = $release->getMaintainers();
+        $maintainer = reset($maintainers);
 
-        file_put_contents($dir.'/'.$release['version'].'.xml', <<<EOF
+        $notes = htmlspecialchars($release->getNotes());
+
+        file_put_contents($dir.'/'.$release->getVersion().'.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <r xmlns="http://pear.php.net/dtd/rest.release" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.release http://pear.php.net/dtd/rest.release.xsd">
-    <p xlink:href="/rest/p/$url">{$package['name']}</p>
+    <p xlink:href="/rest/p/$url">{$name}</p>
     <c>{$this->server->name}</c>
-    <v>{$release['version']}</v>
-    <st>{$release['stability']}</st>
-    <l>{$package['license']}</l>
+    <v>{$release->getVersion()}</v>
+    <st>{$release->getStability()}</st>
+    <l>{$release->getLicense(true)}</l>
     <m>{$maintainer['nickname']}</m>
-    <s>{$package['summary']}</s>
-    <d>{$package['description']}</d>
-    <da>{$release['date']}</da>
-    <n>{$release['notes']}</n>
-    <f>{$release['filesize']}</f>
-    <g>{$this->server->url}/get/{$package['name']}-{$release['version']}</g>
-    <x xlink:href="package.{$release['version']}.xml"/>
+    <s>{$release->getSummary(true)}</s>
+    <d>{$release->getDescription(true)}</d>
+    <da>{$release->getDate()}</da>
+    <n>$notes</n>
+    <f>{$release->getFileSize()}</f>
+    <g>{$this->server->url}/get/{$name}-{$release->getVersion()}</g>
+    <x xlink:href="package.{$release->getVersion()}.xml"/>
 </r>
 EOF
         );
 
-        file_put_contents($dir.'/v2.'.$release['version'].'.xml', <<<EOF
+        file_put_contents($dir.'/v2.'.$release->getVersion().'.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <r xmlns="http://pear.php.net/dtd/rest.release2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.release2 http://pear.php.net/dtd/rest.release2.xsd">
-    <p xlink:href="/rest/p/$url">{$package['name']}</p>
+    <p xlink:href="/rest/p/$url">{$name}</p>
     <c>{$this->server->name}</c>
-    <v>{$release['version']}</v>
-    <a>{$release['api_version']}</a>
-    <mp>{$release['php']}</mp>
-    <st>{$release['stability']}</st>
-    <l>{$package['license']}</l>
+    <v>{$release->getVersion()}</v>
+    <a>{$release->getApiVersion()}</a>
+    <mp>{$release->getMinPhp()}</mp>
+    <st>{$release->getStability()}</st>
+    <l>{$release->getLicense(true)}</l>
     <m>{$maintainer['nickname']}</m>
-    <s>{$package['summary']}</s>
-    <d>{$package['description']}</d>
-    <da>{$release['date']}</da>
-    <n>{$release['notes']}</n>
-    <f>{$release['filesize']}</f>
-    <g>{$this->server->url}/get/{$package['name']}-{$release['version']}</g>
-    <x xlink:href="package.{$release['version']}.xml"/>
+    <s>{$release->getSummary(true)}</s>
+    <d>{$release->getDescription(true)}</d>
+    <da>{$release->getDate()}</da>
+    <n>$notes</n>
+    <f>{$release->getFileSize()}</f>
+    <g>{$this->server->url}/get/{$name}-{$release->getVersion()}</g>
+    <x xlink:href="package.{$release->getVersion()}.xml"/>
 </r>
 EOF
         );
 
-        file_put_contents($dir.'/deps.'.$release['version'].'.txt', $release['deps']);
+        file_put_contents($dir.'/deps.'.$release->getVersion().'.txt', $release->getDeps());
 
-        $release['info']->copyPackageXml($dir."/package.{$release['version']}.xml");
+        $release->copyPackageXml($dir."/package.{$release->getVersion()}.xml");
     }
 
     protected function buildPackages()
@@ -960,10 +962,12 @@ EOF
         mkdir($this->buildDir.'/rest/p', 0777, true);
 
         $packages = '';
-        foreach ($this->packages as $package) {
-            $packages .= "  <p>{$package['name']}</p>\n";
+        foreach ($this->packages as $name => $package) {
+            $name = htmlspecialchars($name);
 
-            mkdir($dir = $this->buildDir.'/rest/p/'.strtolower($package['name']), 0777, true);
+            $packages .= "  <p>{$name}</p>\n";
+
+            mkdir($dir = $this->buildDir.'/rest/p/'.strtolower($name), 0777, true);
             $this->buildPackage($dir, $package);
         }
 
@@ -979,19 +983,22 @@ EOF
 
     protected function buildPackage($dir, $package)
     {
-        $this->formatter and print $this->formatter->formatSection('INFO', "Building package {$package['name']}.");
+        $name = $package[0]->getName();
 
-        $url = strtolower($package['name']);
+        $this->formatter and print $this->formatter->formatSection('INFO', "Building package {$name}.");
+
+        $name = htmlspecialchars($name);
+        $url = strtolower($name);
 
         file_put_contents($dir.'/info.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <p xmlns="http://pear.php.net/dtd/rest.package" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.package    http://pear.php.net/dtd/rest.package.xsd">
-<n>{$package['name']}</n>
+<n>{$name}</n>
 <c>{$this->server->name}</c>
 <ca xlink:href="/rest/c/Default">Default</ca>
-<l>{$package['license']}</l>
-<s>{$package['summary']}</s>
-<d>{$package['description']}</d>
+<l>{$package[0]->getLicense(true)}</l>
+<s>{$package[0]->getSummary(true)}</s>
+<d>{$package[0]->getDescription(true)}</d>
 <r xlink:href="/rest/r/{$url}" />
 </p>
 EOF
@@ -999,7 +1006,7 @@ EOF
 
         $maintainers = '';
         $maintainers2 = '';
-        foreach ($package['current_maintainers'] as $nickname => $maintainer) {
+        foreach ($package[0]->getMaintainers() as $nickname => $maintainer) {
             $maintainers .= <<<EOF
     <m>
         <h>{$nickname}</h>
@@ -1021,7 +1028,7 @@ EOF;
         file_put_contents($dir.'/maintainers.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <m xmlns="http://pear.php.net/dtd/rest.packagemaintainers" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.packagemaintainers http://pear.php.net/dtd/rest.packagemaintainers.xsd">
-    <p>{$package['name']}</p>
+    <p>{$name}</p>
     <c>{$this->server->name}</c>
 $maintainers
 </m>
@@ -1031,7 +1038,7 @@ EOF
         file_put_contents($dir.'/maintainers2.xml', <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <m xmlns="http://pear.php.net/dtd/rest.packagemaintainers2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.packagemaintainers2 http://pear.php.net/dtd/rest.packagemaintainers2.xsd">
-    <p>{$package['name']}</p>
+    <p>{$name}</p>
     <c>{$this->server->name}</c>
 $maintainers2
 </m>
@@ -1067,26 +1074,27 @@ EOF
 
         $packages = '';
         $packagesinfo = '';
-        foreach ($this->packages as $package) {
-            $url = strtolower($package['name']);
+        foreach ($this->packages as $name => $package) {
+            $name = htmlspecialchars($name);
+            $url = strtolower($name);
 
-            $packages .= "  <p xlink:href=\"/rest/p/$url\">{$package['name']}</p>\n";
+            $packages .= "  <p xlink:href=\"/rest/p/$url\">{$name}</p>\n";
 
             $deps = '';
             $releases = '';
-            foreach ($package['releases'] as $release) {
+            foreach ($package as $release) {
                 $releases .= <<<EOF
             <r>
-                <v>{$release['version']}</v>
-                <s>{$release['stability']}</s>
+                <v>{$release->getVersion()}</v>
+                <s>{$release->getStability()}</s>
             </r>
 
 EOF;
 
                 $deps .= <<<EOF
         <deps>
-            <v>{$release['version']}</v>
-            <d>{$release['deps']}</d>
+            <v>{$release->getVersion()}</v>
+            <d>{$release->getDeps()}</d>
         </deps>
 
 EOF;
@@ -1095,12 +1103,12 @@ EOF;
             $packagesinfo .= <<<EOF
     <pi>
         <p>
-            <n>{$package['name']}</n>
+            <n>{$name}</n>
             <c>{$this->server->name}</c>
             <ca xlink:href="/rest/c/Default">Default</ca>
-            <l>{$package['license']}</l>
-            <s>{$package['summary']}</s>
-            <d>{$package['description']}</d>
+            <l>{$package[0]->getLicense(true)}</l>
+            <s>{$package[0]->getSummary(true)}</s>
+            <d>{$package[0]->getDescription(true)}</d>
             <r xlink:href="/rest/r/$url" />
         </p>
 
@@ -1138,24 +1146,30 @@ EOF
 
         $all = '';
         foreach ($this->packages as $package) {
-            foreach ($package['maintainers'] as $nickname => $maintainer) {
-                $dir = $this->buildDir.'/rest/m/'.$nickname;
+            foreach ($package as $release) {
+                foreach ($release->getMaintainers() as $m) {
+                    if (isset($maintainers[$m['nickname']])) {
+                        continue;
+                    }
 
-                $info = <<<EOF
+                    $dir = $this->buildDir . '/rest/m/' . $m['nickname'];
+
+                    $info = <<<EOF
 <?xml version="1.0" encoding="UTF-8" ?>
 <m xmlns="http://pear.php.net/dtd/rest.maintainer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xlink="http://www.w3.org/1999/xlink" xsi:schemaLocation="http://pear.php.net/dtd/rest.maintainer http://pear.php.net/dtd/rest.maintainer.xsd">
- <h>{$nickname}</h>
- <n>{$maintainer['name']}</n>
- <u>{$maintainer['url']}</u>
+ <h>{$m['nickname']}</h>
+ <n>{$m['name']}</n>
+ <u>{$m['url']}</u>
 </m>
 EOF;
 
-                if (!is_dir($dir)) {
-                    mkdir($dir, 0777, true);
-                    $all .= "  <h xlink:href=\"/rest/m/{$nickname}\">{$nickname}</h>\n";
-                }
+                    if (!is_dir($dir)) {
+                        mkdir($dir, 0777, true);
+                        $all .= "  <h xlink:href=\"/rest/m/{$m['nickname']}\">{$m['nickname']}</h>\n";
+                    }
 
-                file_put_contents($dir.'/info.xml', $info);
+                    file_put_contents($dir.'/info.xml', $info);
+                }
             }
         }
 
@@ -1233,16 +1247,12 @@ EOF;
 
     protected function extractInformationFromPackages()
     {
-        $this->packages = array();
-
         // get all package files
         $files = array();
         foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($this->targetDir.'/get'), RecursiveIteratorIterator::LEAVES_ONLY) as $file) {
-            if (!preg_match(Pirum_Package::PACKAGE_FILE_PATTERN, $file->getFileName(), $match)) {
-                continue;
+            if (preg_match(Pirum_Package::PACKAGE_FILE_PATTERN, $file->getFileName(), $match)) {
+                $files[$match['release']] = (string) $file;
             }
-
-            $files[$match['release']] = (string) $file;
         }
 
         // order files to have latest versions first
@@ -1250,62 +1260,34 @@ EOF;
         $files = array_reverse($files);
 
         // get information for each package
-        $packages = array();
-        foreach ($files as $file) {
-            $package = new Pirum_Package($file);
-            if (file_exists($file = $this->targetDir.'/rest/r/'.strtolower($package->getName()).'/package.'.$package->getVersion().'.xml')) {
-                $package->loadPackageFromFile($file);
-            } else {
-                $package->loadPackageFromArchive();
-            }
-
-            $packages[$file] = $package;
-        }
+        $this->packages = array();
 
         $first = true;
         $this->formatter and print $this->formatter->formatSection('INFO', 'Parsing package', false);
-        foreach ($packages as $file => $package) {
-            !$first and $this->formatter and print $this->formatter->format(',');
-            $this->formatter and print $this->formatter->format(' ' . $package->getName() . ' ' . $package->getVersion());
+
+        foreach ($files as $file) {
+            $package = new Pirum_Package($file, $this->targetDir);
+            $name = $package->getName();
 
             if ($package->getChannel() != $this->server->name) {
-                throw new Exception(sprintf('Package "%s" channel (%s) is not %s.', $package->getName(), $package->getChannel(), $this->server->name));
+                throw new Exception(sprintf('Package "%s" channel (%s) is not %s.', $name, $package->getChannel(), $this->server->name));
             }
 
-            if (!isset($this->packages[$package->getName()])) {
-                $this->packages[$package->getName()] = array(
-                    'name'        => htmlspecialchars($package->getName()),
-                    'license'     => htmlspecialchars($package->getLicense()),
-                    'summary'     => htmlspecialchars($package->getSummary()),
-                    'description' => htmlspecialchars($package->getDescription()),
-                    'extension'   => $package->getProvidedExtension(),
-                    'releases'    => array(),
-                    'maintainers' => array(),
-                    'deps'        => unserialize($package->getDeps()),
-                    'current_maintainers' => $package->getMaintainers(),
-                );
+            if (!isset($this->packages[$name])) {
+                $this->packages[$name] = array();
             }
+            $this->packages[$name][] = $package;
 
-            $this->packages[$package->getName()]['releases'][] = array(
-                'version'     => $package->getVersion(),
-                'api_version' => $package->getApiVersion(),
-                'stability'   => $package->getStability(),
-                'date'        => $package->getDate(),
-                'filesize'    => $package->getFilesize(),
-                'php'         => $package->getMinPhp(),
-                'deps'        => $package->getDeps(),
-                'notes'       => htmlspecialchars($package->getNotes()),
-                'maintainers' => $package->getMaintainers(),
-                'info'        => $package,
-            );
-
-            $this->packages[$package->getName()]['maintainers'] = array_merge($package->getMaintainers(), $this->packages[$package->getName()]['maintainers']);
-
+            !$first and $this->formatter and print $this->formatter->format(',');
+            $this->formatter and print $this->formatter->format(' ' . $name . ' ' . $package->getVersion());
             $first = false;
         }
+
         $this->formatter and print "\n";
 
-        ksort($this->packages);
+        /* SORT_NATURAL is defined as of PHP 5.4.0. Fallback to SORT_REGULAR
+         * otherwise. */
+        ksort($this->packages, @constant('SORT_NATURAL'));
     }
 
     protected function mirrorDir($build, $target)
@@ -1373,14 +1355,30 @@ class Pirum_Package
 {
     const PACKAGE_FILE_PATTERN = '#^(?P<release>(?P<name>.+)\-(?P<version>[\d\.]+((?:RC|beta|alpha|dev|snapshot|a|b)\d*)?))\.tgz$#i';
 
-    protected $package;
     protected $tmpDir;
     protected $name;
     protected $version;
     protected $archive;
     protected $packageFile;
 
-    public function __construct($archive)
+    /* Generated from package.xml data. */
+    protected $apistability;
+    protected $apiversion;
+    protected $channel;
+    protected $classmap;
+    protected $date;
+    protected $deps;
+    protected $description;
+    protected $license;
+    protected $licenseuri;
+    protected $maintainers;
+    protected $minphp;
+    protected $notes;
+    protected $providesext;
+    protected $stability;
+    protected $summary;
+
+    public function __construct($archive, $targetDir)
     {
         $this->archive = $archive;
         if (!preg_match(self::PACKAGE_FILE_PATTERN, $filename = basename($archive), $match)) {
@@ -1390,54 +1388,80 @@ class Pirum_Package
         $this->name    = $match['name'];
         $this->version = $match['version'];
 
-        $this->tmpDir = sys_get_temp_dir().'/pirum_package_'.uniqid();
+        if (file_exists($file = $targetDir . '/rest/r/' . strtolower($this->getName()) . '/package.' . $this->getVersion() . '.xml')) {
+            $package = $this->loadPackageFromFile($file);
+        } else {
+            $package = $this->loadPackageFromArchive();
+        }
 
-        mkdir($this->tmpDir, 0777, true);
+        $this->buildDate($package);
+        $this->buildLicense($package);
+        $this->buildLicenseUri($package);
+        $this->buildDescription($package);
+        $this->buildSummary($package);
+        $this->buildChannel($package);
+        $this->buildNotes($package);
+        $this->buildApiVersion($package);
+        $this->buildApiStability($package);
+        $this->buildStability($package);
+        $this->buildMaintainers($package);
+        $this->buildDeps($package);
+        $this->buildMinPhp($package);
+        $this->buildProvidedExtension($package);
+        $this->buildClassmap($package);
     }
 
     public function __destruct()
     {
-        Pirum_CLI::removeDir($this->tmpDir);
-    }
-
-    public function getPackageXml()
-    {
-        return $this->package;
+        if (isset($this->tmpDir)) {
+            Pirum_CLI::removeDir($this->tmpDir);
+        }
     }
 
     public function getDate($format = 'Y-m-d H:i:s')
     {
-        return date($format, strtotime($this->package->date.' '.$this->package->time));
+        return date($format, $this->date);
     }
 
-    public function getLicense()
+    public function getLicense($escape = false)
     {
-        return (string) $this->package->license;
+        return $escape
+            ? htmlspecialchars($this->license)
+            : $this->license;
     }
 
     public function getLicenseUri()
     {
-        return (string) $this->package->license['uri'];
+        return $this->licenseuri;
     }
 
-    public function getDescription()
+    public function getDescription($escape = false)
     {
-        return (string) $this->package->description;
+        return $escape
+            ? htmlspecialchars($this->description)
+            : $this->description;
     }
 
-    public function getSummary()
+    public function getSummary($escape = false)
     {
-        return (string) $this->package->summary;
+        return $escape
+            ? htmlspecialchars($this->summary)
+            : $this->summary;
     }
 
     public function getChannel()
     {
-        return (string) $this->package->channel;
+        return $this->channel;
     }
 
     public function getNotes()
     {
-        return (string) $this->package->notes;
+        return $this->notes;
+    }
+
+    public function getFileName()
+    {
+        return $this->archive;
     }
 
     public function getFileSize()
@@ -1447,57 +1471,39 @@ class Pirum_Package
 
     public function getApiVersion()
     {
-        return (string) $this->package->version->api;
+        return $this->apiversion;
     }
 
     public function getApiStability()
     {
-        return (string) $this->package->stability->api;
+        return $this->apistability;
     }
 
     public function getStability()
     {
-        return (string) $this->package->stability->release;
+        return $this->stability;
     }
 
     public function getMaintainers()
     {
-        $maintainers = array();
-
-        foreach (array('lead', 'developer', 'contributor', 'helper') as $role) {
-            foreach ($this->package->{$role} as $person) {
-                $maintainers[(string) $person->user] = array(
-                    'nickname' => (string) $person->user,
-                    'role'     => $role,
-                    'email'    => (string) $person->email,
-                    'name'     => (string) $person->name,
-                    'url'      => (string) $person->url,
-                    'active'   => strtolower((string) $person->active) == 'yes' ? 1 : 0,
-                );
-            }
-        }
-
-        return $maintainers;
+        return $this->maintainers;
     }
 
     public function getDeps()
     {
-        $deps = $this->XMLToArray($this->package->dependencies);
-        if (isset($this->package->dependencies->group) && $this->package->dependencies->group->length > 0) {
-            $deps['group'] = $this->XMLGroupDepsToArray($this->package->dependencies->group);
-        }
-
-        return serialize($deps);
+        return $this->deps;
     }
 
     public function getMinPhp()
     {
-        return isset($this->package->dependencies->required->php->min) ? (string) $this->package->dependencies->required->php->min : null;
+        return $this->minphp;
     }
 
-    public function getName()
+    public function getName($escape = false)
     {
-        return $this->name;
+        return $escape
+            ? htmlspecialchars($this->name)
+            : $this->name;
     }
 
     public function getVersion()
@@ -1505,8 +1511,14 @@ class Pirum_Package
         return $this->version;
     }
 
-    public function getProvidedExtension() {
-        return isset($this->package->providesextension) ? (string)$this->package->providesextension : null;
+    public function getProvidedExtension()
+    {
+        return $this->providesext;
+    }
+
+    public function getClassmap()
+    {
+        return $this->classmap;
     }
 
     public function copyPackageXml($target)
@@ -1514,25 +1526,32 @@ class Pirum_Package
         copy($this->packageFile, $target);
     }
 
-    public function loadPackageFromFile($file)
+    protected function loadPackageFromFile($file)
     {
         $this->packageFile = $file;
 
-        $this->package = new SimpleXMLElement(file_get_contents($file));
+        $package = new SimpleXMLElement(file_get_contents($file));
 
         // check name
-        if ($this->name != (string) $this->package->name) {
-            throw new InvalidArgumentException(sprintf('The package.xml name "%s" does not match the name of the archive file "%s".', $this->package->name, $this->name));
+        if ($this->name != (string) $package->name) {
+            throw new InvalidArgumentException(sprintf('The package.xml name "%s" does not match the name of the archive file "%s".', $package->name, $this->name));
         }
 
         // check version
-        if ($this->version != (string) $this->package->version->release) {
-            throw new InvalidArgumentException(sprintf('The package.xml version "%s" does not match the version of the archive file "%s".', $this->package->version->release, $this->version));
+        if ($this->version != (string) $package->version->release) {
+            throw new InvalidArgumentException(sprintf('The package.xml version "%s" does not match the version of the archive file "%s".', $package->version->release, $this->version));
         }
+
+        return $package;
     }
 
-    public function loadPackageFromArchive()
+    protected function loadPackageFromArchive()
     {
+        if (!isset($this->tmpDir)) {
+            $this->tmpDir = sys_get_temp_dir().'/pirum_package_'.uniqid();
+            mkdir($this->tmpDir, 0777, true);
+        }
+
         if (!function_exists('gzopen')) {
             copy($this->archive, $this->tmpDir.'/archive.tgz');
             system('cd '.$this->tmpDir.' && tar zxpf archive.tgz');
@@ -1541,9 +1560,7 @@ class Pirum_Package
                 throw new InvalidArgumentException('The PEAR package does not have a package.xml file.');
             }
 
-            $this->loadPackageFromFile($this->tmpDir.'/package.xml');
-
-            return;
+            return $this->loadPackageFromFile($this->tmpDir.'/package.xml');
         }
 
         $gz = gzopen($this->archive, 'r');
@@ -1580,40 +1597,14 @@ class Pirum_Package
 
             file_put_contents($this->packageFile, $package);
 
-            $this->loadPackageFromFile($this->tmpDir.'/package.xml');
-
-            return;
+            return $this->loadPackageFromFile($this->tmpDir.'/package.xml');
         }
 
         throw new InvalidArgumentException('The PEAR package does not have a package.xml file.');
     }
 
-    protected function XMLToArray($xml)
-    {
-        $array = array();
-        foreach ($xml->children() as $element => $value) {
-            $key = (string) $element;
-            $value = count($value->children()) ? $this->XMLToArray($value) : (string) $value;
-
-            if (array_key_exists($key, $array)) {
-                if (!is_array($array[$key])) {
-                    $array[$key] = array($array[$key]);
-                }
-                $array[$key][] = $value;
-            } else {
-                $array[$key] = $value;
-            }
-        }
-
-        return $array;
-    }
-
     protected function XMLGroupDepsToArray($xml)
     {
-        if ($xml->count() == 0) {
-            return array();
-        }
-
         $deps = array();
         foreach ($xml as $group) {
             // Extract group attribs (shared by all children)
@@ -1624,12 +1615,140 @@ class Pirum_Package
 
             // Create one group dependency per childern
             foreach ($group->children() as $type => $value) {
-                $deps[] = array('attribs' => $attribs, $type => $this->XMLToArray($value));
+                $deps[] = array(
+                    'attribs' => $attribs,
+                    $type => json_decode(json_encode((array)$value), 1)
+                );
             }
         }
 
         return $deps;
     }
+
+    protected function buildDate(SimpleXMLElement $package)
+    {
+        $this->date = strtotime($package->date . ' ' . $package->time);
+    }
+
+    protected function buildLicense(SimpleXMLElement $package)
+    {
+        $this->license = (string) $package->license;
+    }
+
+    protected function buildLicenseUri(SimpleXMLElement $package)
+    {
+        $this->licenseuri = (string) $package->license['uri'];
+    }
+
+    protected function buildDescription(SimpleXMLElement $package)
+    {
+        $this->description = (string) $package->description;
+    }
+
+    protected function buildSummary(SimpleXMLElement $package)
+    {
+        $this->summary = (string) $package->summary;
+    }
+
+    protected function buildChannel(SimpleXMLElement $package)
+    {
+        $this->channel = (string) $package->channel;
+    }
+
+    protected function buildNotes(SimpleXMLElement $package)
+    {
+        $this->notes = (string) $package->notes;
+    }
+
+    protected function buildApiVersion(SimpleXMLElement $package)
+    {
+        $this->apiversion = (string) $package->version->api;
+    }
+
+    protected function buildApiStability(SimpleXMLElement $package)
+    {
+        $this->apistability = (string) $package->stability->api;
+    }
+
+    protected function buildStability(SimpleXMLElement $package)
+    {
+        $this->stability = (string) $package->stability->release;
+    }
+
+    protected function buildMaintainers(SimpleXMLElement $package)
+    {
+        $this->maintainers = array();
+
+        foreach (array('lead', 'developer', 'contributor', 'helper') as $role) {
+            foreach ($package->{$role} as $person) {
+                $this->maintainers[(string) $person->user] = array(
+                    'nickname' => (string) $person->user,
+                    'role'     => $role,
+                    'email'    => (string) $person->email,
+                    'name'     => (string) $person->name,
+                    'url'      => (string) $person->url,
+                    'active'   => strtolower((string) $person->active) == 'yes' ? 1 : 0,
+                );
+            }
+        }
+    }
+
+    protected function buildDeps(SimpleXMLElement $package)
+    {
+        $deps = json_decode(json_encode((array)$package->dependencies), 1);
+        if (isset($package->dependencies->group) &&
+            $group = $this->XMLGroupDepsToArray($package->dependencies->group)) {
+            $deps['group'] = $group;
+        }
+
+        $this->deps = serialize($deps);
+    }
+
+    protected function buildMinPhp(SimpleXMLElement $package)
+    {
+        $this->minphp = isset($package->dependencies->required->php->min)
+            ? (string) $package->dependencies->required->php->min
+            : null;
+    }
+
+    protected function buildProvidedExtension(SimpleXMLElement $package)
+    {
+        $this->providesext = isset($package->providesextension)
+            ? (string) $package->providesextension
+            : null;
+    }
+
+    protected function buildClassmap(SimpleXMLElement $package)
+    {
+        $out = $paths = array();
+
+        foreach ($package->contents->dir as $dir) {
+            foreach ($dir->file as $file) {
+                if ('php' === (string) $file['role']) {
+                    $path = dirname(ltrim($dir['name'].$file['name'], '/'));
+                    if (!isset($paths[$path])) {
+                        $paths[$path] = true;
+                    }
+                }
+            }
+        }
+
+        // reduce to meaningful unique paths
+        foreach (array_keys($paths) as $path) {
+            foreach (array_keys($out) as $path2) {
+                if (strpos($path, $path2 . '/') === 0) {
+                    continue 2;
+                }
+                if (strpos($path2, $path . '/') === 0) {
+                    unset($out[$path2]);
+                }
+            }
+            $out[$path] = true;
+        }
+
+        $this->classmap = $out ? array_keys($out) : array('');
+    }
+
 }
 
 /**
